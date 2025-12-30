@@ -9,7 +9,12 @@ const elements = {
     authBtn: document.getElementById('authBtn'),
     logoutBtn: document.getElementById('logoutBtn'),
 
-    // Generator Form
+    // Mode Toggle (V2)
+    modeToggle: document.getElementById('modeToggle'),
+    modeManual: document.getElementById('modeManual'),
+    modeBatch: document.getElementById('modeBatch'),
+
+    // Generator Form (Manual Mode)
     generatorCard: document.getElementById('generatorCard'),
     generateForm: document.getElementById('generateForm'),
     themeInput: document.getElementById('theme'),
@@ -19,6 +24,17 @@ const elements = {
     estimateTime: document.getElementById('estimateTime'),
     generateBtn: document.getElementById('generateBtn'),
 
+    // Batch Upload Card (V2)
+    batchCard: document.getElementById('batchCard'),
+    fileUploadArea: document.getElementById('fileUploadArea'),
+    themeFile: document.getElementById('themeFile'),
+    themePreview: document.getElementById('themePreview'),
+    themeCount: document.getElementById('themeCount'),
+    themeList: document.getElementById('themeList'),
+    batchEstimate: document.getElementById('batchEstimate'),
+    batchEstimateTime: document.getElementById('batchEstimateTime'),
+    startBatchBtn: document.getElementById('startBatchBtn'),
+
     // Progress
     progressCard: document.getElementById('progressCard'),
     progressTitle: document.getElementById('progressTitle'),
@@ -26,6 +42,13 @@ const elements = {
     progressCount: document.getElementById('progressCount'),
     progressPercent: document.getElementById('progressPercent'),
     progressLog: document.getElementById('progressLog'),
+
+    // Batch Progress (V2)
+    batchProgress: document.getElementById('batchProgress'),
+    currentThemeName: document.getElementById('currentThemeName'),
+    themeProgress: document.getElementById('themeProgress'),
+    countdownSection: document.getElementById('countdownSection'),
+    countdownTimer: document.getElementById('countdownTimer'),
 
     // Result
     resultCard: document.getElementById('resultCard'),
@@ -40,7 +63,10 @@ const elements = {
 let state = {
     authenticated: false,
     hasAIKey: false,
-    generating: false
+    generating: false,
+    currentMode: 'manual', // 'manual' or 'batch'
+    batchThemes: [],       // Array of theme strings for V2
+    batchResults: []       // Store results from all themes
 };
 
 // ====================================
@@ -60,6 +86,27 @@ function updateEstimate() {
     } else {
         const minutes = Math.ceil(seconds / 60);
         elements.estimateTime.textContent = `~${minutes} menit`;
+    }
+}
+
+function updateBatchEstimate() {
+    const themeCount = state.batchThemes.length;
+    if (themeCount === 0) return;
+
+    // 20 songs per theme * 5 seconds + 2 minutes delay between themes
+    const songsPerTheme = 20;
+    const secondsPerTheme = songsPerTheme * 5; // 100 seconds per theme
+    const delayBetweenThemes = 120; // 2 minutes
+
+    const totalSeconds = (themeCount * secondsPerTheme) + ((themeCount - 1) * delayBetweenThemes);
+    const totalMinutes = Math.ceil(totalSeconds / 60);
+
+    if (totalMinutes < 60) {
+        elements.batchEstimateTime.textContent = `~${totalMinutes} menit`;
+    } else {
+        const hours = Math.floor(totalMinutes / 60);
+        const mins = totalMinutes % 60;
+        elements.batchEstimateTime.textContent = `~${hours} jam ${mins} menit`;
     }
 }
 
@@ -91,9 +138,78 @@ function clearLog() {
 
 function showCard(card) {
     elements.generatorCard.style.display = 'none';
+    elements.batchCard.style.display = 'none';
     elements.progressCard.style.display = 'none';
     elements.resultCard.style.display = 'none';
     card.style.display = 'block';
+}
+
+function formatCountdown(seconds) {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+}
+
+// ====================================
+// Mode Switching (V2)
+// ====================================
+function switchMode(mode) {
+    state.currentMode = mode;
+
+    // Update toggle buttons
+    elements.modeManual.classList.toggle('active', mode === 'manual');
+    elements.modeBatch.classList.toggle('active', mode === 'batch');
+
+    // Show appropriate card
+    if (mode === 'manual') {
+        elements.generatorCard.style.display = 'block';
+        elements.batchCard.style.display = 'none';
+    } else {
+        elements.generatorCard.style.display = 'none';
+        elements.batchCard.style.display = 'block';
+    }
+}
+
+// ====================================
+// File Upload Handling (V2)
+// ====================================
+function handleFileUpload(file) {
+    if (!file || !file.name.endsWith('.txt')) {
+        alert('Hanya file .txt yang diperbolehkan');
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const content = e.target.result;
+        const lines = content.split('\n')
+            .map(line => line.trim())
+            .filter(line => line.length > 0);
+
+        state.batchThemes = lines;
+        displayThemePreview(lines);
+    };
+    reader.readAsText(file);
+}
+
+function displayThemePreview(themes) {
+    elements.themeCount.textContent = themes.length;
+
+    // Build preview list
+    elements.themeList.innerHTML = themes.map((theme, i) =>
+        `<div class="preview-item"><span class="num">${i + 1}.</span><span>${theme}</span></div>`
+    ).join('');
+
+    // Show preview and estimate
+    elements.themePreview.style.display = 'block';
+    elements.batchEstimate.style.display = 'flex';
+    elements.fileUploadArea.classList.add('has-file');
+
+    // Update estimate
+    updateBatchEstimate();
+
+    // Enable start button if authenticated
+    elements.startBatchBtn.disabled = !state.authenticated || !state.hasAIKey;
 }
 
 // ====================================
@@ -134,8 +250,10 @@ function updateAuthUI() {
         elements.logoutBtn.style.display = 'none';
     }
 
-    // Enable/disable generate button
-    elements.generateBtn.disabled = !state.authenticated || !state.hasAIKey;
+    // Enable/disable generate buttons
+    const canGenerate = state.authenticated && state.hasAIKey;
+    elements.generateBtn.disabled = !canGenerate;
+    elements.startBatchBtn.disabled = !canGenerate || state.batchThemes.length === 0;
 }
 
 async function logout() {
@@ -148,6 +266,9 @@ async function logout() {
     }
 }
 
+// ====================================
+// Single Theme Generation (Manual Mode)
+// ====================================
 async function generateSongs(theme, count) {
     const sessionId = generateSessionId();
 
@@ -188,6 +309,165 @@ async function generateSongs(theme, count) {
     }
 }
 
+// ====================================
+// Batch Theme Generation (V2)
+// ====================================
+async function startBatchGeneration() {
+    if (state.batchThemes.length === 0) return;
+
+    state.generating = true;
+    state.batchResults = [];
+    clearLog();
+
+    // Show progress card with batch elements
+    showCard(elements.progressCard);
+    elements.batchProgress.style.display = 'flex';
+
+    const totalThemes = state.batchThemes.length;
+    const songsPerTheme = 20;
+
+    for (let i = 0; i < totalThemes; i++) {
+        const theme = state.batchThemes[i];
+        const themeNum = i + 1;
+
+        // Update batch progress UI
+        elements.currentThemeName.textContent = theme;
+        elements.themeProgress.textContent = `${themeNum} / ${totalThemes} tema`;
+
+        addLogItem(`\n📂 === TEMA ${themeNum}/${totalThemes}: ${theme} ===`, 'success');
+
+        try {
+            // Generate songs for this theme
+            await generateThemeSongs(theme, songsPerTheme, themeNum, totalThemes);
+        } catch (error) {
+            addLogItem(`❌ Error pada tema "${theme}": ${error.message}`, 'error');
+        }
+
+        // Delay between themes (except for last theme)
+        if (i < totalThemes - 1) {
+            await showCountdownDelay(120); // 2 minutes = 120 seconds
+        }
+    }
+
+    // Show final result
+    showBatchResult();
+    state.generating = false;
+}
+
+async function generateThemeSongs(theme, count, themeNum, totalThemes) {
+    return new Promise((resolve, reject) => {
+        const sessionId = generateSessionId();
+
+        // Start SSE for progress updates
+        const eventSource = new EventSource(`/api/generate/progress/${sessionId}`);
+
+        eventSource.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            handleBatchProgressUpdate(data, themeNum, totalThemes);
+        };
+
+        eventSource.onerror = () => {
+            eventSource.close();
+        };
+
+        fetch('/api/generate', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ theme, count, sessionId })
+        })
+            .then(response => response.json())
+            .then(result => {
+                eventSource.close();
+                if (result.success) {
+                    state.batchResults.push({
+                        theme,
+                        songs: result.songs,
+                        errors: result.errors,
+                        folderLink: result.parentFolderLink
+                    });
+                    resolve(result);
+                } else {
+                    reject(new Error(result.error || 'Generation failed'));
+                }
+            })
+            .catch(error => {
+                eventSource.close();
+                reject(error);
+            });
+    });
+}
+
+function handleBatchProgressUpdate(data, themeNum, totalThemes) {
+    // Update progress bar based on current song within theme
+    if (data.current && data.total) {
+        elements.progressTitle.textContent = `Tema ${themeNum}/${totalThemes} - Lagu ${data.current}/${data.total}`;
+        elements.progressCount.textContent = `${data.current} / ${data.total}`;
+
+        const percent = Math.round((data.current / data.total) * 100);
+        elements.progressFill.style.width = percent + '%';
+        elements.progressPercent.textContent = percent + '%';
+    }
+
+    // Add log item
+    if (data.message) {
+        const type = data.status === 'error' || data.status === 'upload_error' ? 'error' :
+            data.status === 'complete' || data.status === 'uploaded' ? 'success' : '';
+        addLogItem(data.message, type);
+    }
+}
+
+async function showCountdownDelay(seconds) {
+    elements.countdownSection.style.display = 'block';
+
+    return new Promise(resolve => {
+        let remaining = seconds;
+
+        const interval = setInterval(() => {
+            elements.countdownTimer.textContent = formatCountdown(remaining);
+
+            if (remaining <= 0) {
+                clearInterval(interval);
+                elements.countdownSection.style.display = 'none';
+                resolve();
+            }
+            remaining--;
+        }, 1000);
+
+        // Initial display
+        elements.countdownTimer.textContent = formatCountdown(remaining);
+    });
+}
+
+function showBatchResult() {
+    const totalSongs = state.batchResults.reduce((sum, r) => sum + r.songs.length, 0);
+    const totalErrors = state.batchResults.reduce((sum, r) => sum + r.errors.length, 0);
+    const totalThemes = state.batchResults.length;
+
+    let message = `${totalSongs} lagu dari ${totalThemes} tema berhasil dibuat`;
+    if (totalErrors > 0) {
+        message += ` (${totalErrors} error)`;
+    }
+    message += ' dan disimpan ke Google Drive';
+
+    elements.resultText.textContent = message;
+
+    // Link to first folder or show multiple
+    if (state.batchResults.length > 0) {
+        elements.driveLink.href = state.batchResults[0].folderLink;
+    }
+
+    showCard(elements.resultCard);
+
+    // Hide batch progress elements
+    elements.batchProgress.style.display = 'none';
+    elements.countdownSection.style.display = 'none';
+}
+
+// ====================================
+// Progress Update Handler (Manual Mode)
+// ====================================
 function handleProgressUpdate(data) {
     switch (data.status) {
         case 'starting':
@@ -259,7 +539,46 @@ function initEventListeners() {
     // Logout button
     elements.logoutBtn.addEventListener('click', logout);
 
-    // Count buttons
+    // Mode toggle (V2)
+    elements.modeManual.addEventListener('click', () => switchMode('manual'));
+    elements.modeBatch.addEventListener('click', () => switchMode('batch'));
+
+    // File upload area (V2)
+    elements.fileUploadArea.addEventListener('click', () => {
+        elements.themeFile.click();
+    });
+
+    elements.themeFile.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+            handleFileUpload(e.target.files[0]);
+        }
+    });
+
+    // Drag and drop (V2)
+    elements.fileUploadArea.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        elements.fileUploadArea.classList.add('dragover');
+    });
+
+    elements.fileUploadArea.addEventListener('dragleave', () => {
+        elements.fileUploadArea.classList.remove('dragover');
+    });
+
+    elements.fileUploadArea.addEventListener('drop', (e) => {
+        e.preventDefault();
+        elements.fileUploadArea.classList.remove('dragover');
+        if (e.dataTransfer.files.length > 0) {
+            handleFileUpload(e.dataTransfer.files[0]);
+        }
+    });
+
+    // Start batch button (V2)
+    elements.startBatchBtn.addEventListener('click', async () => {
+        if (state.generating) return;
+        await startBatchGeneration();
+    });
+
+    // Count buttons (Manual mode)
     elements.countDown.addEventListener('click', () => {
         const current = parseInt(elements.countInput.value) || 0;
         if (current > 1) {
@@ -279,7 +598,7 @@ function initEventListeners() {
     // Count input change
     elements.countInput.addEventListener('input', updateEstimate);
 
-    // Form submit
+    // Form submit (Manual mode)
     elements.generateForm.addEventListener('submit', async (e) => {
         e.preventDefault();
 
@@ -300,6 +619,7 @@ function initEventListeners() {
 
         state.generating = true;
         clearLog();
+        elements.batchProgress.style.display = 'none'; // Hide batch UI for manual mode
         showCard(elements.progressCard);
 
         await generateSongs(theme, count);
@@ -309,10 +629,24 @@ function initEventListeners() {
 
     // New batch button
     elements.newBatchBtn.addEventListener('click', () => {
-        elements.themeInput.value = '';
-        elements.countInput.value = '10';
-        updateEstimate();
-        showCard(elements.generatorCard);
+        // Reset state
+        state.batchThemes = [];
+        state.batchResults = [];
+
+        // Reset UI based on current mode
+        if (state.currentMode === 'manual') {
+            elements.themeInput.value = '';
+            elements.countInput.value = '10';
+            updateEstimate();
+            showCard(elements.generatorCard);
+        } else {
+            elements.themeFile.value = '';
+            elements.themePreview.style.display = 'none';
+            elements.batchEstimate.style.display = 'none';
+            elements.fileUploadArea.classList.remove('has-file');
+            elements.startBatchBtn.disabled = true;
+            showCard(elements.batchCard);
+        }
     });
 }
 
